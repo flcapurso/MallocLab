@@ -85,6 +85,28 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
+    size_t prevBlock = GET_ALLOC(FOOTER(PREVIOUS(ptr)));
+    size_t nextBlock = GET_ALLOC(HEADER(NEXT(ptr)));
+    size_t size = GET_SIZE(HEADER(ptr));
+
+    PUT(HEADER(ptr), PACK(size, 0));
+    PUT(FOOTER(ptr), PACK(size, 0));
+
+    if(prevBlock && nextBlock) {
+        // nothing happens because they are both allocated
+    }
+    else if(!prevBlock && nextBlock) {
+        // prevBlock is free and nextBlock is allocated
+        size += GET_SIZE(HEADER(NEXT))
+    }
+    else if (prevBlock && !nextBlock) {
+        // prevBlock is allocated and nextBlock is free
+    }
+    else {
+        // both are free
+
+    }
+
 }
 
 /*
