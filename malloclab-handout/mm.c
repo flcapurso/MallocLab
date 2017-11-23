@@ -44,11 +44,22 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
+/* ADDITIONAL MACROS */
+#define INITIALSIZE = 1024;
+#define ALLOCATED = 1;
+#define FREE = 0;
+
+void *freeListStart;
 /* 
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {
+    printf("NEW START\n");
+    // Create new heap and initialise free list
+    *freeListStart = mem_sbrk(INITIALSIZE);
+    // Update free space size and set to not allocated
+    *(unsigned int *)(p) = INITIALSIZE | FREE;
     return 0;
 }
 
@@ -60,6 +71,7 @@ void *mm_malloc(size_t size)
 {
     int newsize = ALIGN(size + SIZE_T_SIZE);
     void *p = mem_sbrk(newsize);
+    printf("%d : %d ; %p\n",size, newsize, p);
     if (p == (void *)-1)
 	return NULL;
     else {
@@ -94,17 +106,3 @@ void *mm_realloc(void *ptr, size_t size)
     mm_free(oldptr);
     return newptr;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
