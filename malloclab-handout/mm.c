@@ -67,6 +67,7 @@ team_t team = {
 //size_t prevBlockAllocated = (*(unsigned int *)(ptr - SIZE_T_SIZE)) & 0x1;
 //size_t nextBlock = (*(unsigned int *)(ptr + currentSize + FOOTSIZE )) & 0x1;
 
+
 #define GET_SIZE(p) (GET(p) & ~0x7) //extracts size byte from 4 byte header or footer
 #define GET_ALLOCATED(p) (GET(p) & 0x1) //extracts allocated byte from 4 byte header or footer
 
