@@ -53,6 +53,7 @@ team_t team = {
 #define FOOTSIZE 4
 #define INITIALPADDING 4
 #define POINTERSIZE 4
+#define MINDATASIZE (ALIGN(1))
 
 void *freeListStart;
 /* 
@@ -60,20 +61,20 @@ void *freeListStart;
  */
 int mm_init(void)
 {
-    printf("NEW START\n");
+    //printf("NEW START\n");
     // Create new heap and initialise free list
-    freeListStart = mem_sbrk(INITIALSIZE);
-    printf("Start pointer: %p\n", freeListStart);
+    freeListStart = mem_sbrk(ALIGN(INITIALPADDING + HEADSIZE + FOOTSIZE + INITIALSIZE));
+    //printf("Start pointer: %p\n", freeListStart);
     // Move free pointer after the header
     freeListStart = (void *) ((char *)freeListStart + SIZE_T_SIZE);
-    printf("Final pointer: %p\n", freeListStart);
+    //printf("Final pointer: %p\n", freeListStart);
     // Set Header
     *(unsigned int *)(freeListStart - HEADSIZE) = (INITIALSIZE | FREE);
-    printf("Compare header value -> %d : %d\n",*(unsigned int *)(freeListStart), (INITIALSIZE | FREE));
+    //printf("Compare header value -> %d : %d\n",*(unsigned int *)(freeListStart), (INITIALSIZE | FREE));
     // Set Footer
     *(unsigned int *)(freeListStart + INITIALSIZE) = (INITIALSIZE | FREE);
-    printf("Footer pointer: %p\n", (freeListStart + INITIALSIZE));
-    printf("Compare footer value%d : %d\n",*(unsigned int *)(freeListStart + INITIALSIZE), (INITIALSIZE | FREE));
+    //printf("Footer pointer: %p\n", (freeListStart + INITIALSIZE));
+    //printf("Compare footer value%d : %d\n",*(unsigned int *)(freeListStart + INITIALSIZE), (INITIALSIZE | FREE));
     // Set 'next' pointer to zero
     *(unsigned int *)(freeListStart) = 0;
     *(unsigned int *)(freeListStart + POINTERSIZE) = 0;
@@ -90,98 +91,160 @@ void *mm_malloc(size_t size)
     //unsigned int requiredTotalSize = ALIGN(size + SIZE_T_SIZE);
     unsigned int requiredDataSize = ALIGN(size);
 
-    // Get 'next' pointer stored in free space
-    void *nextFree = freeListStart;
-    short matchFound = 0;
-    unsigned int minAvailableSize = UINT_MAX;
-    void *bestFitPointer;
-    unsigned int currentSize = 0;
-    int numberFree = 0;
-    while ( ((int)nextFree != 0) && (matchFound == 0) ) {
-        numberFree++;
-        printf("\t%d\n", numberFree);
-        currentSize = (*(unsigned int *)nextFree) & ~0x7;
-        if (minAvailableSize == requiredDataSize) {
-            matchFound = 1;
-            minAvailableSize = currentSize;
-            bestFitPointer = nextFree;
+    // Get First element in free space (if there is any free space)
+    if (freeListStart != (void *) -1) {
+        void *nextFree = freeListStart; // pointer to first free space, used to itinerate between the next ones
+        short matchFound = 0; // has a EXACT match been found
+        unsigned int minAvailableSize = UINT_MAX; //save closest size
+        void *bestFitPointer; // save pointer to the saved space
+        unsigned int currentSize = 0; // holds next free space size to compare with saved one
+        int numberFree = 0; // just to print how many free spaces have been found
+        // Loop to check all free spaces (stops if pointer has not been assigned(which means end of list) or exact match found)
+        while ( ((int)nextFree != 0) && (matchFound == 0) ) {
+            numberFree++;
+            //printf("\t%d\n", numberFree);
+            // get size of the next free space
+            currentSize = (*(unsigned int *)nextFree) & ~0x7;
+            // see if it matches exactly
+            if (minAvailableSize == requiredDataSize) {
+                matchFound = 1;
+                minAvailableSize = currentSize;
+                bestFitPointer = nextFree;
+            }
+            // or if is the closest found till now
+            else if ((minAvailableSize > currentSize) && (currentSize > requiredDataSize)) {
+                minAvailableSize = currentSize;
+                bestFitPointer = nextFree;
+            }
+            // move on to the next pointer for next itineration (if exact match has not yet been found)
+            nextFree = (void *) *(unsigned int *)(nextFree);
         }
-        else if ((minAvailableSize > currentSize) && (currentSize > requiredDataSize)) {
-            minAvailableSize = currentSize;
-            bestFitPointer = nextFree;
-        }
-        nextFree = (void *) *(unsigned int *)(nextFree);
-    }
 
-    // If no match was found, expand heap
-    if (minAvailableSize == UINT_MAX) {
-        void *endHeap = mem_heap_hi();
-        unsigned int prevSize = 0;
-        short prevAlloc = (*(unsigned int *)(endHeap - SIZE_T_SIZE)) & 0x1;
+        // If no match was found, expand heap
+        if (minAvailableSize == UINT_MAX) {
+            //printf("No match found\n");
+            void *endHeap = mem_heap_hi();
+            // +1 since mem_heap_hi() returns LAST byte, not end of heap
+            endHeap = (void *) ((char*)endHeap + 1);
+            unsigned int prevSize = 0;
+            short prevAlloc = (*(unsigned int *)(endHeap - SIZE_T_SIZE)) & 0x1;
 
-        // if last block is free, expand only by required
-        if (!prevAlloc){
-            prevSize = (*(unsigned int *)(endHeap - SIZE_T_SIZE)) & ~0x7;
-            void *addedHeap = mem_sbrk(requiredDataSize - prevSize);
-            if (addedHeap == (void *)-1)
-                return NULL;
-            // continue only if there is still memory (no errors)
+            // if last block is free, expand only by required
+            if (!prevAlloc){
+                //printf("\tExpand only by required\n");
+                prevSize = (*(unsigned int *)(endHeap - SIZE_T_SIZE)) & ~0x7;
+                //printf("\t\t prevSize: %d; required: %d. %p\n", prevSize, requiredDataSize, endHeap);
+                void *addedHeap = mem_sbrk(requiredDataSize - prevSize);
+                if (addedHeap == (void *)-1)
+                    return NULL;
+                // continue only if there is still memory (no errors)
+                else {
+                    void *newAllocated = (void *) ((char *)addedHeap - prevSize);
+                    void *prevPRVpointer = (void *) *(unsigned int *)(newAllocated);
+                    void *prevNXTpointer = (void *) *(unsigned int *)(newAllocated + POINTERSIZE);
+
+                    // if last block is first in the free list
+                    if ((int)prevPRVpointer == 0) {
+                        // and if also last, set 'freeListStart' to -1
+                        if ((int)prevNXTpointer == 0)
+                            freeListStart = (void *) -1;
+                        else
+                            freeListStart = prevNXTpointer;
+                    }
+                    // if last block is last in the free list
+                    else if ((int)prevNXTpointer == 0)
+                        *(unsigned int *)(prevPRVpointer) = 0;
+                    // if in middle of list
+                    else {
+                        *(unsigned int *)(prevPRVpointer) = *(unsigned int *)prevNXTpointer;
+                        *(unsigned int *)(prevNXTpointer) = *(unsigned int *)prevPRVpointer;
+                    }
+
+                    // update header and footer
+                    *(unsigned int *)(newAllocated - HEADSIZE) = ((requiredDataSize + prevSize) | ALLOCATED);
+                    *(unsigned int *)(newAllocated + requiredDataSize + prevSize) = ((requiredDataSize + prevSize) | ALLOCATED);
+                    //printf("%d : %d ; %p\n",size, (requiredDataSize + SIZE_T_SIZE), newAllocated);
+                    return newAllocated;
+                }
+            }
+            // if last block is allocated, simply expand
             else {
-                void *newAllocated = (void *) ((char *)addedHeap - prevSize);
-                void *prevPRVpointer = (void *) *(unsigned int *)(newAllocated);
-                void *prevNXTpointer = (void *) *(unsigned int *)(newAllocated + POINTERSIZE);
+                //printf("\tSimply expand\n");
+                void *addedHeap = mem_sbrk(requiredDataSize + SIZE_T_SIZE);
+                if (addedHeap == (void *)-1)
+                    return NULL;
+                // continue only if there is still memory (no errors)
+                else {
+                    *(unsigned int *)(addedHeap - HEADSIZE) = (requiredDataSize | ALLOCATED);
+                    *(unsigned int *)(addedHeap + requiredDataSize) = (requiredDataSize | ALLOCATED);
+                    //printf("%d : %d ; %p\n",size, (requiredDataSize+SIZE_T_SIZE), addedHeap);
+                    return addedHeap;
+                }
+            }
+        }
 
-                // if last block is first in the free list
-                if ((int)prevPRVpointer == 0) {
+        // If free space was found
+        else {
+            //printf("Free space found \n");
+            void *oldPRVpointer = (void *) *(unsigned int *)(bestFitPointer);
+            void *oldNXTpointer = (void *) *(unsigned int *)(bestFitPointer + POINTERSIZE);
+            // if exact match or negligible additional free space, simply assign it
+            if ( (matchFound == 1) || ((minAvailableSize - requiredDataSize) < (SIZE_T_SIZE + MINDATASIZE)) ) {
+                //printf("\tExact or almost \n");
+                // if current block is first in the free list
+                if ((int)oldPRVpointer == 0) {
                     // and if also last, set 'freeListStart' to -1
-                    if ((int)prevNXTpointer == 0)
+                    if ((int)oldNXTpointer == 0)
                         freeListStart = (void *) -1;
                     else
-                        freeListStart = prevNXTpointer;
+                        freeListStart = oldNXTpointer;
                 }
-                // if last block is last in the free list
-                else if ((int)prevNXTpointer == 0)
-                    *(unsigned int *)(prevPRVpointer) = 0;
+                // if current block is last in the free list
+                else if ((int)oldNXTpointer == 0)
+                    *(unsigned int *)(oldPRVpointer) = 0;
                 // if in middle of list
                 else {
-                    *(unsigned int *)(prevPRVpointer) = *(unsigned int *)prevNXTpointer;
-                    *(unsigned int *)(prevNXTpointer) = *(unsigned int *)prevPRVpointer;
+                    *(unsigned int *)(oldPRVpointer) = *(unsigned int *)oldNXTpointer;
+                    *(unsigned int *)(oldNXTpointer) = *(unsigned int *)oldPRVpointer;
                 }
-
-                // update header and footer
-                *(unsigned int *)(newAllocated - HEADSIZE) = ((requiredDataSize + prevSize) | ALLOCATED);
-                *(unsigned int *)(newAllocated + requiredDataSize + prevSize) = ((requiredDataSize + prevSize) | ALLOCATED);
-                printf("%d : %d ; %p\n",size, (requiredDataSize + SIZE_T_SIZE), newAllocated);
-                return newAllocated;
+                //allocate memory
+                *(unsigned int *)(bestFitPointer - HEADSIZE) &= ~ALLOCATED;
+                *(unsigned int *)(bestFitPointer + requiredDataSize) &=  ~ALLOCATED;
+                //printf("%d : %d ; %p\n",size, (requiredDataSize+SIZE_T_SIZE), bestFitPointer);
             }
-        }
-        // if last block is allocated, simply expand
-        else {
-            void *addedHeap = mem_sbrk(requiredDataSize + SIZE_T_SIZE);
-            if (addedHeap == (void *)-1)
-                return NULL;
-            // continue only if there is still memory (no errors)
+            // if additional space remains, store it as free space
             else {
-                *(unsigned int *)(addedHeap - HEADSIZE) = (requiredDataSize | ALLOCATED);
-                *(unsigned int *)(addedHeap + requiredDataSize) = (requiredDataSize | ALLOCATED);
-                printf("%d : %d ; %p\n",size, (requiredDataSize+SIZE_T_SIZE), addedHeap);
-                return addedHeap;
+             //printf("\tSplit and free remaining space \n");
+                void *newFree = (void *) ((char *)bestFitPointer + requiredDataSize + SIZE_T_SIZE);
+                *(unsigned int *)(newFree - HEADSIZE) = ((minAvailableSize - requiredDataSize) | FREE);
+                *(unsigned int *)(newFree + requiredDataSize) = ((minAvailableSize - requiredDataSize) | FREE);
+                *(unsigned int *)(newFree) = *(unsigned int *)oldNXTpointer;
+                *(unsigned int *)(newFree + POINTERSIZE) = *(unsigned int *)oldPRVpointer;
+                //allocate memory
+                *(unsigned int *)(bestFitPointer - HEADSIZE) = (requiredDataSize | ALLOCATED);
+                *(unsigned int *)(bestFitPointer + requiredDataSize) = (requiredDataSize | ALLOCATED);
+                //printf("%d : %d ; %p\n",size, (requiredDataSize+SIZE_T_SIZE), bestFitPointer);
             }
+            return bestFitPointer;
         }
     }
-    // If match was found, simply assign it
+    // if there is no free space, simply expand heap
     else {
-        //allocate memory
-        *(unsigned int *)(bestFitPointer - HEADSIZE) = (requiredDataSize | ALLOCATED);
-        *(unsigned int *)(bestFitPointer + requiredDataSize) = (requiredDataSize | ALLOCATED);
-        printf("%d : %d ; %p - 4\n",size, (requiredDataSize+SIZE_T_SIZE), bestFitPointer);
-
-        // NEED TO DO: Re-organise free list
-        return bestFitPointer;
+        //printf("No free space -> Expand heap \n");
+        void *addedHeap = mem_sbrk(requiredDataSize + SIZE_T_SIZE);
+        if (addedHeap == (void *)-1)
+            return NULL;
+        else {
+            *(unsigned int *)(addedHeap - HEADSIZE) = (requiredDataSize | ALLOCATED);
+            *(unsigned int *)(addedHeap + requiredDataSize) = (requiredDataSize | ALLOCATED);
+            //printf("%d : %d ; %p\n",size, (requiredDataSize+SIZE_T_SIZE), addedHeap);
+            return (void *)((char *)addedHeap + SIZE_T_SIZE);
+        }
     }
+
     /*
     void *p = mem_sbrk(requiredSize);
-    printf("%d : %d ; %p\n",size, requiredSize, p);
+    //printf("%d : %d ; %p\n",size, requiredSize, p);
     if (p == (void *)-1)
 	return NULL;
     else {
