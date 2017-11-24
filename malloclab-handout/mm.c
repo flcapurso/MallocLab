@@ -31,9 +31,9 @@ team_t team = {
     /* First member's email address */
     "flcapurso@kaist.ac.kr",
     /* Second member's full name (leave blank if none) */
-    "",
+    "Henrik Iller Waersted",
     /* Second member's email address (leave blank if none) */
-    ""
+    "carzita@kaist.ac.kr"
 };
 
 /* single word (4) or double word (8) alignment */
@@ -54,6 +54,27 @@ team_t team = {
 #define INITIALPADDING 4
 #define POINTERSIZE 4
 #define MINDATASIZE (ALIGN(1))
+
+// Pack a size and allocated bit into a word
+#define PACK(size, alloc) ((size) | (alloc))
+
+// Read and write a word at address p
+#define GET(p) (*(unsigned int *)(p))
+#define PUT(p, val)  (*(unsigned int *)(p) = (val))
+
+//#define GET_SIZE(ptr) (*(unsigned int *)(ptr - HEADSIZE)) & ~0x7;
+//#define GET_ALLOC(ptr) (*(unsigned int *)(ptr - SIZE_T_SIZE)) & 0x1;
+//size_t prevBlockAllocated = (*(unsigned int *)(ptr - SIZE_T_SIZE)) & 0x1;
+//size_t nextBlock = (*(unsigned int *)(ptr + currentSize + FOOTSIZE )) & 0x1;
+
+#define GET_SIZE(p) (GET(p) & ~0x7) //extracts size byte from 4 byte header or footer
+#define GET_ALLOCATED(p) (GET(p) & 0x1) //extracts allocated byte from 4 byte header or footer
+
+#define HEADER(ptr) ((unsigned int *)(ptr) - HEADSIZE) //gets header address of ptr
+#define FOOTER(ptr) ((unsigned int *)(ptr) + GET_SIZE(HEADER(ptr))) //gets footer address of ptr
+
+#define NEXT(ptr) ((unsigned int *)(ptr) + GET_SIZE(((unsigned int *)(ptr) + FOOTSIZE))) // access next block
+#define PREVIOUS(ptr) ((unsigned int *)(ptr) - SIZE_T_SIZE) // access previous block
 
 void *freeListStart;
 /* 
@@ -104,7 +125,7 @@ void *mm_malloc(size_t size)
             numberFree++;
             //printf("\t%d\n", numberFree);
             // get size of the next free space
-            currentSize = (*(unsigned int *)nextFree) & ~0x7;
+            currentSize = (*(unsigned int *)(nextFree - HEADSIZE)) & ~0x7;
             // see if it matches exactly
             if (minAvailableSize == requiredDataSize) {
                 matchFound = 1;
@@ -259,26 +280,42 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *ptr)
 {
-    size_t prevBlock = GET_ALLOC(FOOTER(PREVIOUS(ptr)));
-    size_t nextBlock = GET_ALLOC(HEADER(NEXT(ptr)));
+    size_t size = GET_SIZE(HEADER(ptr));
+    PUT(HEADER(ptr), PACK(size, FREE));
+    PUT(FOOTER(ptr), PACK(size, FREE));
+    coalesce(ptr);
+}
+
+static void *coalesce (void *ptr) {
+    size_t prevBlockAllocated = GET_ALLOCATED(FOOTER(PREVIOUS(ptr)));
+    size_t nextBlockAllocated = GET_ALLOCATED(HEADER(NEXT(ptr)));
+
     size_t size = GET_SIZE(HEADER(ptr));
 
-    PUT(HEADER(ptr), PACK(size, 0));
-    PUT(FOOTER(ptr), PACK(size, 0));
-
-    if(prevBlock && nextBlock) {
+    if(prevBlockAllocated && nextBlockAllocated) {
         // nothing happens because they are both allocated
+        return ptr;
     }
-    else if(!prevBlock && nextBlock) {
-        // prevBlock is free and nextBlock is allocated
-        size += GET_SIZE(HEADER(NEXT))
-    }
-    else if (prevBlock && !nextBlock) {
+    else if(prevBlockAllocated && !nextBlockAllocated) {
         // prevBlock is allocated and nextBlock is free
+        size += GET_SIZE(HEADER(NEXT(ptr)));
+        PUT(HEADER(ptr), PACK(size, FREE));
+        PUT(FOOTER(ptr), PACK(size, FREE));
+        return ptr;
+    }
+    else if (!prevBlockAllocated && nextBlockAllocated) {
+        // prevBlock is free and nextBlock is allocated
+        size += GET_SIZE(HEADER(PREVIOUS(ptr)));
+        PUT(HEADER(PREVIOUS(ptr)), PACK(size, FREE));
+        PUT(FOOTER(ptr), PACK(size, FREE));
+        return (PREVIOUS(ptr));
     }
     else {
         // both are free
-
+        size += GET_SIZE(HEADER(PREVIOUS(ptr))) + GET_SIZE(HEADER(NEXT(ptr)));
+        PUT(HEADER(PREVIOUS(ptr)), PACK(size, FREE));
+        PUT(FOOTER(NEXT(ptr)), PACK(size, FREE));
+        return (PREVIOUS(ptr));
     }
 }
 
