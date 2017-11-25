@@ -43,7 +43,7 @@ team_t team = {
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
 
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t))) // 8
 
 /* ADDITIONAL MACROS */
 #define INITIALSIZE 1024 //only data size (no header, footer, padding)
