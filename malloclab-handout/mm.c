@@ -76,10 +76,11 @@ team_t team = {
 
 //#define NEXT(ptr) ((unsigned int *)(ptr) + GET_SIZE(((unsigned int *)(ptr) + FOOTSIZE))) // access next block
 
-#define NEXT(ptr) (ptr + GET_SIZE(HEADER(ptr)) + FOOTSIZE) // access next block
+#define NEXT(ptr) (ptr + GET_SIZE(HEADER(ptr)) + (HEADSIZE + FOOTSIZE)) // access next block
 #define PREVIOUS(ptr) (ptr - (HEADSIZE + FOOTSIZE) - GET_SIZE(ptr - (HEADSIZE + FOOTSIZE))) // access previous block footer
 
 void *freeListStart;
+void *nigga;
 
 static void *coalesce(void *ptr);
 /* 
@@ -87,7 +88,8 @@ static void *coalesce(void *ptr);
  */
 int mm_init(void)
 {
-    printf("\n\n\n\n### NEW START ###\n");
+    //printf("\n\n\n\n### NEW START ###\n");
+    nigga = (void *)306808;
     // Create new heap and initialise free list
     freeListStart = mem_sbrk(ALIGN(INITIALPADDING + HEADSIZE + FOOTSIZE + INITIALSIZE));
     ////printf("Start pointer: %p\n", freeListStart);
@@ -121,6 +123,7 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
     printf("# Malloc -> %zu\n", size);
+    //printf("NIGGA: %d\n", GET_SIZE(nigga));
 
     //unsigned int requiredTotalSize = ALIGN(size + (HEADSIZE + FOOTSIZE));
     unsigned int requiredDataSize = ALIGN(size);
@@ -197,10 +200,11 @@ void *mm_malloc(size_t size)
                         SET_PREV(prevNXTpointer, ((unsigned int) prevPRVpointer));
                     }
                     // update header and footer
-                    PUT(HEADER(newAllocated),((requiredDataSize - prevSize) | ALLOCATED));
-                    PUT((newAllocated + requiredDataSize + prevSize),((requiredDataSize - prevSize) | ALLOCATED));
+                    PUT(HEADER(newAllocated),((requiredDataSize) | ALLOCATED));
+                    PUT((newAllocated + requiredDataSize),((requiredDataSize) | ALLOCATED));
                     //printf("%zu : %d ; %p\n",size, (requiredDataSize + (HEADSIZE + FOOTSIZE)), newAllocated);
                     //printf("END OF HEAP -> %p\n", (mem_heap_hi() + 1));
+                    nigga = (void *)((char *)newAllocated + requiredDataSize);
                     return newAllocated;
                 }
             }
@@ -310,19 +314,6 @@ void mm_free(void *ptr)
 {
     printf("# Free -> %p\n", ptr);
     //printf("Free size %d\n", GET_SIZE(HEADER(ptr)));
-    size_t size = GET_SIZE(HEADER(ptr));
-    PUT(HEADER(ptr), PACK(size, FREE));
-    PUT(FOOTER(ptr), PACK(size, FREE));
-    if (freeListStart != (void *) -1) {
-        void* oldFirstFree = freeListStart;
-        SET_PREV(oldFirstFree, (unsigned int)ptr);
-        SET_NEXT(ptr, (unsigned int)oldFirstFree);
-    }
-    else {
-        SET_NEXT(ptr, 0);
-    }
-    freeListStart = ptr;
-    SET_PREV(freeListStart, 0);
     coalesce(ptr);
 }
 
@@ -330,44 +321,82 @@ static void *coalesce (void *ptr) {
     //printf("# coalesce -> %p\n", ptr);
     size_t size = GET_SIZE(HEADER(ptr));
 
-    size_t prevBlockAllocated = GET_ALLOCATED(FOOTER(PREVIOUS(ptr)));
-    size_t nextBlockAllocated = GET_ALLOCATED(HEADER(NEXT(ptr)));
+    void *prevBlock = PREVIOUS(ptr);
+    void *nextBlock = NEXT(ptr);
+    //printf("%p - %p\n",prevBlock, nextBlock);
+    short prevBlockAllocated = GET_ALLOCATED(ptr - 8);
+    short nextBlockAllocated = GET_ALLOCATED(HEADER(nextBlock));
 
     // if at start
     if ( ((int)mem_heap_lo() + INITIALPADDING + HEADSIZE) == ((int)ptr) ){
         prevBlockAllocated = 1;
     }
     else if ( ((int)mem_heap_hi() + 1 - (HEADSIZE + FOOTSIZE)) == ((int)ptr + size) ){
+        //printf("(ITS AT THE END)\n");
         nextBlockAllocated = 1;
     }
+    //printf("Prev: %d alloc?:%d\n", GET_SIZE(HEADER(prevBlock)), prevBlockAllocated);
+    //printf("Next: %d alloc?:%d\n", GET_SIZE(HEADER(nextBlock)), nextBlockAllocated);
 
     if(prevBlockAllocated && nextBlockAllocated) {
+        //printf("\tBoth Alloc\n");
         // nothing happens because they are both allocated
+        PUT(HEADER(ptr), PACK(size, FREE));
+        PUT(FOOTER(ptr), PACK(size, FREE));
+        if (freeListStart != (void *) -1) {
+            void* oldFirstFree = freeListStart;
+            SET_PREV(oldFirstFree, (unsigned int)ptr);
+            SET_NEXT(ptr, (unsigned int)oldFirstFree);
+        }
+        else {
+            SET_NEXT(ptr, 0);
+        }
+        freeListStart = ptr;
+        SET_PREV(ptr, 0);
         return ptr;
     }
     else if(prevBlockAllocated && !nextBlockAllocated) {
+        //printf("\tNext Free\n");
         // prevBlock is allocated and nextBlock is free
-        size += GET_SIZE(HEADER(NEXT(ptr)));
+        size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(nextBlock)) );
         PUT(HEADER(ptr), PACK(size, FREE));
         PUT(FOOTER(ptr), PACK(size, FREE));
+        SET_NEXT(ptr, (int)GET_NEXT(nextBlock));
+        SET_PREV(ptr, (int)GET_PREV(nextBlock));
         //printf("1.Free size %d\n", GET_SIZE(HEADER(ptr)));
         return ptr;
     }
     else if (!prevBlockAllocated && nextBlockAllocated) {
+        //printf("\tPrev Free\n");
         // prevBlock is free and nextBlock is allocated
-        size += GET_SIZE(HEADER(PREVIOUS(ptr)));
-        PUT(HEADER(PREVIOUS(ptr)), PACK(size, FREE));
+        size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) );
+        PUT(HEADER(prevBlock), PACK(size, FREE));
         PUT(FOOTER(ptr), PACK(size, FREE));
         //printf("2.Free size %d\n", GET_SIZE(HEADER(ptr)));
-        return (PREVIOUS(ptr));
+        return (prevBlock);
     }
     else {
+        //printf("\tBoth Free\n");
         // both are free
-        size += GET_SIZE(HEADER(PREVIOUS(ptr))) + GET_SIZE(HEADER(NEXT(ptr)));
-        PUT(HEADER(PREVIOUS(ptr)), PACK(size, FREE));
-        PUT(FOOTER(NEXT(ptr)), PACK(size, FREE));
+        size += ( 2*(HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) + GET_SIZE(HEADER(nextBlock)) );
+        PUT(HEADER(prevBlock), PACK(size, FREE));
+        PUT(FOOTER(nextBlock), PACK(size, FREE));
+        void *nextNXTpointer = GET_NEXT(nextBlock);
+        void *nextPRVpointer = GET_PREV(nextBlock);
+
+        // if start of list
+        if ((int)nextPRVpointer == 0){
+            freeListStart = nextNXTpointer;
+        }
+        else if ((int)nextNXTpointer == 0) {
+            SET_NEXT(nextPRVpointer, 0);
+        }
+        else{
+            SET_NEXT(nextNXTpointer, (int)nextPRVpointer);
+            SET_PREV(nextPRVpointer, (int)nextNXTpointer);
+        }
         //printf("3.Free size %d\n", GET_SIZE(HEADER(ptr)));
-        return (PREVIOUS(ptr));
+        return (prevBlock);
     }
 }
 
@@ -376,7 +405,7 @@ static void *coalesce (void *ptr) {
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    printf("# Realloc -> %p\n", ptr);
+    //printf("# Realloc -> %p\n", ptr);
     void *oldptr = ptr;
     void *newptr = mm_malloc(size);
     size_t copySize;
