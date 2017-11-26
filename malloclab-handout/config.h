@@ -26,6 +26,7 @@
   "amptjp-bal.rep",\
   "binary-bal.rep",\
   "binary2-bal.rep",\
+  "coalescing-bal.rep",\
   "cp-decl-bal.rep",\
   "expr-bal.rep",\
   "random-bal.rep",\
@@ -37,6 +38,7 @@
   "amptjp.rep",\
   "binary.rep",\
   "binary2.rep",\
+  "coalescing.rep",\
   "cp-decl.rep",\
   "expr.rep",\
   "random.rep",\

@@ -64,8 +64,8 @@ team_t team = {
 
 #define GET_SIZE(p) (GET(p) & ~0x7) //extracts size byte from 4 byte header or footer
 #define GET_ALLOCATED(p) (GET(p) & 0x1) //extracts allocated byte from 4 byte header or footer
-#define SET_ALLOC(p,val) (*(unsigned int *)(p) |= 0x1)
-#define SET_FREE(p,val) (*(unsigned int *)(p) &= ~0x1)
+#define SET_ALLOC(p) (*(unsigned int *)(p) |= 0x1)
+#define SET_FREE(p) (*(unsigned int *)(p) &= ~0x1)
 
 #define HEADER(ptr) (ptr - HEADSIZE) //gets header address of ptr
 #define FOOTER(ptr) (ptr + GET_SIZE(HEADER(ptr))) //gets footer address of ptr
@@ -178,8 +178,9 @@ void *mm_malloc(size_t size)
                 prevSize = GET_SIZE(endHeap - (HEADSIZE + FOOTSIZE));
                 //printf("\t\t prevSize: %d; required: %d. %p\n", prevSize, requiredDataSize, endHeap);
                 void *addedHeap = mem_sbrk(requiredDataSize - prevSize);
-                if (addedHeap == (void *)-1)
+                if (addedHeap == (void *)-1) {
                     return NULL;
+                }
                 // continue only if there is still memory (no errors)
                 else {
                     void *newAllocated = (void *) ((char *)addedHeap - prevSize - (HEADSIZE + FOOTSIZE));
@@ -188,8 +189,9 @@ void *mm_malloc(size_t size)
                     // if last block is first in the free list
                     if ((int)prevPRVpointer == 0) {
                         // and if also last, set 'freeListStart' to -1
-                        if ((int)prevNXTpointer == 0)
+                        if ((int)prevNXTpointer == 0) {
                             freeListStart = (void *)(-1);
+                        }
                         else{
                             freeListStart = prevNXTpointer;
                             SET_PREV(prevNXTpointer, 0);
@@ -217,8 +219,9 @@ void *mm_malloc(size_t size)
             else {
                 //printf("\tSimply expand\n");
                 void *addedHeap = mem_sbrk(requiredDataSize + (HEADSIZE + FOOTSIZE));
-                if (addedHeap == (void *)-1)
+                if (addedHeap == (void *)-1) {
                     return NULL;
+                }
                 // continue only if there is still memory (no errors)
                 else {
                     PUT(HEADER(addedHeap),(requiredDataSize | ALLOCATED));
@@ -235,29 +238,35 @@ void *mm_malloc(size_t size)
             //printf("Free space found \n");
             void *oldNXTpointer = GET_NEXT(bestFitPointer);
             void *oldPRVpointer = GET_PREV(bestFitPointer);
+            //printf("Next:%p, Prev: %p\n", oldNXTpointer, oldPRVpointer);
             // if exact match or negligible additional free space, simply assign it
             if ( (matchFound == 1) || ((minAvailableSize - requiredDataSize) < ((HEADSIZE + FOOTSIZE) + MINDATASIZE)) ) {
                 //printf("\tExact or almost \n");
                 // if current block is first in the free list
                 if ((int)oldPRVpointer == 0) {
                     // and if also last, set 'freeListStart' to -1
-                    if ((int)oldNXTpointer == 0)
+                    if ((int)oldNXTpointer == 0){
+                        //printf("HALLO\n");
                         freeListStart = (void *) -1;
-                    else
+                    }
+                    else {
                         freeListStart = oldNXTpointer;
                         SET_PREV(oldNXTpointer,0);
+                    }
+
                 }
                 // if current block is last in the free list
-                else if ((int)oldNXTpointer == 0)
+                else if ((int)oldNXTpointer == 0){
                     SET_NEXT((oldPRVpointer), 0);
+                }
                 // if in middle of list
                 else {
                     SET_NEXT(oldPRVpointer, (unsigned int)oldNXTpointer);
                     SET_PREV(oldNXTpointer, (unsigned int)oldPRVpointer);
                 }
                 //allocate memory
-                SET_ALLOC(HEADER(bestFitPointer), ALLOCATED);
-                SET_ALLOC((bestFitPointer + requiredDataSize), ALLOCATED);
+                SET_ALLOC(HEADER(bestFitPointer));
+                SET_ALLOC(bestFitPointer + requiredDataSize);
                 //printf("%zu : %d ; %p\n",size, (requiredDataSize+(HEADSIZE + FOOTSIZE)), bestFitPointer);
             }
             // if additional space remains, store it as free space
@@ -295,8 +304,9 @@ void *mm_malloc(size_t size)
     else {
         //printf("No free space -> Expand heap \n");
         void *addedHeap = mem_sbrk(requiredDataSize + (HEADSIZE + FOOTSIZE));
-        if (addedHeap == (void *)-1)
+        if (addedHeap == (void *)-1) {
             return NULL;
+        }
         else {
             PUT(HEADER(addedHeap), (requiredDataSize | ALLOCATED));
             PUT((addedHeap + requiredDataSize), (requiredDataSize | ALLOCATED));
@@ -332,7 +342,7 @@ void mm_free(void *ptr)
 
 static void *coalesce (void *ptr) {
     //printf("# coalesce -> %p\n", ptr);
-    size_t size = GET_SIZE(HEADER(ptr));
+    unsigned int size = GET_SIZE(HEADER(ptr));
 
     void *prevBlock = PREVIOUS(ptr);
     void *nextBlock = NEXT(ptr);
@@ -344,7 +354,7 @@ static void *coalesce (void *ptr) {
     if ( ((int)mem_heap_lo() + INITIALPADDING + HEADSIZE) == ((int)ptr) ){
         prevBlockAllocated = 1;
     }
-    else if ( ((int)mem_heap_hi() + 1 - (HEADSIZE + FOOTSIZE)) == ((int)ptr + size) ){
+    if ( ((int)mem_heap_hi() + 1 - (HEADSIZE + FOOTSIZE)) == ((int)ptr + size) ){
         //printf("(ITS AT THE END)\n");
         nextBlockAllocated = 1;
     }
@@ -395,6 +405,7 @@ static void *coalesce (void *ptr) {
         //printf("\tPrev Free\n");
         // prevBlock is free and nextBlock is allocated
         size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) );
+        //printf("Size:%d\n", size);
         PUT(HEADER(prevBlock), PACK(size, FREE));
         PUT(FOOTER(ptr), PACK(size, FREE));
         //printf("2.Free size %d\n", GET_SIZE(HEADER(ptr)));
