@@ -64,7 +64,8 @@ team_t team = {
 
 #define GET_SIZE(p) (GET(p) & ~0x7) //extracts size byte from 4 byte header or footer
 #define GET_ALLOCATED(p) (GET(p) & 0x1) //extracts allocated byte from 4 byte header or footer
-#define SET_ALLOC(p,val) (*(unsigned int *)(p) &= ~(val))
+#define SET_ALLOC(p,val) (*(unsigned int *)(p) |= 0x1)
+#define SET_FREE(p,val) (*(unsigned int *)(p) &= ~0x1)
 
 #define HEADER(ptr) (ptr - HEADSIZE) //gets header address of ptr
 #define FOOTER(ptr) (ptr + GET_SIZE(HEADER(ptr))) //gets footer address of ptr
@@ -82,6 +83,8 @@ team_t team = {
 void *freeListStart;
 
 static void *coalesce(void *ptr);
+
+
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -206,6 +209,7 @@ void *mm_malloc(size_t size)
                     PUT((newAllocated + requiredDataSize),((requiredDataSize) | ALLOCATED));
                     //printf("%zu : %d ; %p\n",size, (requiredDataSize + (HEADSIZE + FOOTSIZE)), newAllocated);
                     //printf("END OF HEAP -> %p\n", (mem_heap_hi() + 1));
+                    //printf("%p\n", newAllocated);
                     return newAllocated;
                 }
             }
@@ -220,6 +224,7 @@ void *mm_malloc(size_t size)
                     PUT(HEADER(addedHeap),(requiredDataSize | ALLOCATED));
                     PUT((addedHeap + requiredDataSize), (requiredDataSize | ALLOCATED));
                     //printf("%zu : %d ; %p\n",size, (requiredDataSize+(HEADSIZE + FOOTSIZE)), addedHeap);
+                    //printf("%p\n", addedHeap);
                     return addedHeap;
                 }
             }
@@ -257,7 +262,7 @@ void *mm_malloc(size_t size)
             }
             // if additional space remains, store it as free space
             else {
-             //printf("\tSplit and free remaining space \n");
+                //printf("\tSplit and free remaining space \n");
                 void *newFree = (void *) ((char *)bestFitPointer + requiredDataSize + (HEADSIZE + FOOTSIZE));
                 unsigned int freeSize = (minAvailableSize - requiredDataSize - (HEADSIZE + FOOTSIZE));
                 //printf("SIZE -> %d, %d\n", minAvailableSize, requiredDataSize);
@@ -282,6 +287,7 @@ void *mm_malloc(size_t size)
                 //printf("SIZE -> %d\n", GET_SIZE(HEADER(newFree)));
                 //printf("%zu : %d ; %p\n",size, (requiredDataSize+(HEADSIZE + FOOTSIZE)), bestFitPointer);
             }
+            //printf("%p\n", bestFitPointer);
             return bestFitPointer;
         }
     }
@@ -296,6 +302,7 @@ void *mm_malloc(size_t size)
             PUT((addedHeap + requiredDataSize), (requiredDataSize | ALLOCATED));
             //printf("%zu : %d ; %p\n",size, (requiredDataSize+(HEADSIZE + FOOTSIZE)), addedHeap);
             //printf("END OF HEAP -> %p\n", (mem_heap_hi() + 1));
+            //printf("%p\n", addedHeap);
             return addedHeap;
         }
     }
@@ -321,6 +328,7 @@ void mm_free(void *ptr)
     //printf("Free size %d\n", GET_SIZE(HEADER(ptr)));
     coalesce(ptr);
 }
+
 
 static void *coalesce (void *ptr) {
     //printf("# coalesce -> %p\n", ptr);
@@ -352,6 +360,7 @@ static void *coalesce (void *ptr) {
             void* oldFirstFree = freeListStart;
             SET_PREV(oldFirstFree, (unsigned int)ptr);
             SET_NEXT(ptr, (unsigned int)oldFirstFree);
+
         }
         else {
             SET_NEXT(ptr, 0);
@@ -402,13 +411,16 @@ static void *coalesce (void *ptr) {
 
         // if start of list
         if ((int)nextPRVpointer == 0){
+            //printf("\tStart\n");
             freeListStart = nextNXTpointer;
             SET_PREV(nextNXTpointer, 0);
         }
         else if ((int)nextNXTpointer == 0) {
+            //printf("\tEnd\n");
             SET_NEXT(nextPRVpointer, 0);
         }
         else{
+            //printf("\tMiddle (%p) %p, %p\n", nextBlock, nextPRVpointer,nextNXTpointer);
             SET_NEXT(nextPRVpointer, (int)nextNXTpointer);
             SET_PREV(nextNXTpointer, (int)nextPRVpointer);
         }
