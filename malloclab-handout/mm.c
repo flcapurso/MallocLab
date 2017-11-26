@@ -76,7 +76,7 @@ team_t team = {
 //#define NEXT(ptr) ((unsigned int *)(ptr) + GET_SIZE(((unsigned int *)(ptr) + FOOTSIZE))) // access next block
 
 #define NEXT(ptr) (ptr + GET_SIZE(HEADER(ptr)) + FOOTSIZE) // access next block
-#define PREVIOUS(ptr) (ptr - (HEADSIZE + FOOTSIZE) - GET_SIZE(ptr - (HEADSIZE + FOOTSIZE))) // access previous block
+#define PREVIOUS(ptr) (ptr - (HEADSIZE + FOOTSIZE) - GET_SIZE(ptr - (HEADSIZE + FOOTSIZE))) // access previous block footer
 
 void *freeListStart;
 
@@ -340,16 +340,26 @@ void *mm_realloc(void *ptr, size_t size)
 {
     printf("# Realloc -> %p\n", ptr);
     void *oldptr = ptr;
-    void *newptr;
+    void *newptr = mm_malloc(size);
     size_t copySize;
-    
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-      return NULL;
-    copySize = *(size_t *)((char *)oldptr - (HEADSIZE + FOOTSIZE));
-    if (size < copySize)
-      copySize = size;
+
+    // if PTR is NULL the call is equivalent to mm_malloc(size)
+    if (ptr == NULL) {
+        return mm_malloc(size);
+    }
+
+    // if size is 0 the call is equivalent to mm_free(ptr)
+    if(size == 0) {
+        mm_free(ptr);
+        newptr = 0;
+        return NULL;
+    }
+
+    copySize = GET_SIZE(HEADSIZE(ptr));
+    if (size < copySize) {
+        copySize = size;
+    }
     memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
+    mm_free(ptr);
     return newptr;
 }
