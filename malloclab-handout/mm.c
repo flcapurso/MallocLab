@@ -356,7 +356,7 @@ void *mm_realloc(void *ptr, size_t size)
         return NULL;
     }
 
-    copySize = GET_SIZE(HEADSIZE(ptr));
+    copySize = GET_SIZE(HEADER(ptr));
     if (size < copySize) {
         copySize = size;
     }
