@@ -406,8 +406,7 @@ static void *coalesce (void *ptr) {
 void *mm_realloc(void *ptr, size_t size)
 {
     //printf("# Realloc -> %p\n", ptr);
-    void *oldptr = ptr;
-    void *newptr = mm_malloc(size);
+    void *newptr;
     size_t copySize;
 
     // if PTR is NULL the call is equivalent to mm_malloc(size)
@@ -418,15 +417,21 @@ void *mm_realloc(void *ptr, size_t size)
     // if size is 0 the call is equivalent to mm_free(ptr)
     if(size == 0) {
         mm_free(ptr);
-        newptr = 0;
         return NULL;
+    }
+
+    newptr = mm_malloc(size);
+
+    // The original block is left untouched if realloc fails
+    if(!newptr) {
+        return 0;
     }
 
     copySize = GET_SIZE(HEADER(ptr));
     if (size < copySize) {
         copySize = size;
     }
-    memcpy(newptr, oldptr, copySize);
+    memcpy(newptr, ptr, copySize);
     mm_free(ptr);
     return newptr;
 }
