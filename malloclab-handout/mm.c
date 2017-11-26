@@ -145,7 +145,7 @@ void *mm_malloc(size_t size)
             // get size of the next free space
             currentSize = GET_SIZE(HEADER(nextFree));
             // see if it matches exactly
-            if (minAvailableSize == requiredDataSize) {
+            if (currentSize == requiredDataSize) {
                 matchFound = 1;
                 minAvailableSize = currentSize;
                 bestFitPointer = nextFree;
@@ -157,8 +157,6 @@ void *mm_malloc(size_t size)
             }
             // move on to the next pointer for next itineration (if exact match has not yet been found)
             nextFree = GET_NEXT(nextFree);
-            //if (numberFree >100)
-                //return NULL;
             //printf("%d ", minAvailableSize);
             //printf("\t%p\n", nextFree);
         }
@@ -238,7 +236,6 @@ void *mm_malloc(size_t size)
             //printf("Free space found \n");
             void *oldNXTpointer = GET_NEXT(bestFitPointer);
             void *oldPRVpointer = GET_PREV(bestFitPointer);
-            //printf("Next:%p, Prev: %p\n", oldNXTpointer, oldPRVpointer);
             // if exact match or negligible additional free space, simply assign it
             if ( (matchFound == 1) || ((minAvailableSize - requiredDataSize) < ((HEADSIZE + FOOTSIZE) + MINDATASIZE)) ) {
                 //printf("\tExact or almost \n");
@@ -405,7 +402,6 @@ static void *coalesce (void *ptr) {
         //printf("\tPrev Free\n");
         // prevBlock is free and nextBlock is allocated
         size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) );
-        //printf("Size:%d\n", size);
         PUT(HEADER(prevBlock), PACK(size, FREE));
         PUT(FOOTER(ptr), PACK(size, FREE));
         //printf("2.Free size %d\n", GET_SIZE(HEADER(ptr)));
