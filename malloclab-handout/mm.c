@@ -7,6 +7,8 @@
  * of the maximum available free block size, in order to skip going through the free list if the required
  * malloc size is larger. Finally the realloc function was only completed partially and still has a lot of
  * room for improvement.
+ *
+ * Github repository: https://github.com/flcapurso/MallocLab.git
  */
 #include <stdio.h>
 #include <stdlib.h>
