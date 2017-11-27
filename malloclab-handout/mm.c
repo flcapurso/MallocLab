@@ -46,7 +46,7 @@ team_t team = {
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t))) // 8
 
 /* ADDITIONAL MACROS */
-#define INITIALSIZE 1024 //only data size (no header, footer, padding)
+#define INITIALSIZE 512 //only data size (no header, footer, padding)
 #define ALLOCATED 1
 #define FREE 0
 #define HEADSIZE 4
@@ -85,6 +85,7 @@ unsigned int maxAvailableSize;
 
 static void *coalesce(void *ptr);
 static void *reserveAllocSpace(void *ptr, void *prevBlock, void *nextBlock, short prevBlockAllocated, short nextBlockAllocate);
+static void connectFreeList(void *NXTpointer, void *PRVpointer);
 
 
 /* 
@@ -126,7 +127,7 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    //printf("# Malloc -> %zu; max = %d\n", size, maxAvailableSize);
+    //printf("# Malloc -> %zu\n", size);
 
     //unsigned int requiredTotalSize = ALIGN(size + (HEADSIZE + FOOTSIZE));
     unsigned int requiredDataSize = ALIGN(size);
@@ -309,7 +310,7 @@ void *mm_malloc(size_t size)
                 //allocate memory
                 PUT(HEADER(bestFitPointer), (requiredDataSize | ALLOCATED));
                 PUT((bestFitPointer + requiredDataSize), (requiredDataSize | ALLOCATED));
-                //printf("SIZE -> %d\n", GET_SIZE(HEADER(newFree)));
+                //printf("SIZE -> %d\n", GET_SIZE(FOOTER(bestFitPointer)));
                 //printf("%zu : %d ; %p\n",size, (requiredDataSize+(HEADSIZE + FOOTSIZE)), bestFitPointer);
 
                 if (closestSize == maxAvailableSize) {
@@ -431,6 +432,7 @@ static void *coalesce (void *ptr) {
     else if (!prevBlockAllocated && nextBlockAllocated) {
         //printf("\tPrev Free\n");
         // prevBlock is free and nextBlock is allocated
+        //printf("Free previous size: %d\n", GET_SIZE(HEADER(prevBlock)));
         size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) );
         PUT(HEADER(prevBlock), PACK(size, FREE));
         PUT(FOOTER(ptr), PACK(size, FREE));
@@ -477,6 +479,8 @@ static void *coalesce (void *ptr) {
  */
 void *mm_realloc(void *ptr, size_t requiredSize)
 {   
+    //printf("# Realloc -> %p, Size -> %zu\n", ptr, requiredSize);
+    requiredSize = ALIGN(requiredSize);
     // if PTR is NULL the call is equivalent to mm_malloc(requiredSize)
     if (ptr == NULL) {
         return mm_malloc(requiredSize);
@@ -510,52 +514,78 @@ void *mm_realloc(void *ptr, size_t requiredSize)
         availableSize = currentSize;
     }
     else if (prevBlockAllocated && !nextBlockAllocated) {
-        availableSize = currentSize + GET_SIZE(HEADER(NEXT(ptr))) + (HEADSIZE + FOOTSIZE);
+        availableSize = currentSize + GET_SIZE(HEADER(nextBlock)) + (HEADSIZE + FOOTSIZE);
     }
     else if (!prevBlockAllocated && nextBlockAllocated) {
-        availableSize = currentSize + GET_SIZE(HEADER(PREVIOUS(ptr))) + (HEADSIZE + FOOTSIZE);
+        availableSize = currentSize + GET_SIZE(HEADER(prevBlock)) + (HEADSIZE + FOOTSIZE);
     }
     else {
-        availableSize = currentSize + GET_SIZE(HEADER(NEXT(ptr))) + GET_SIZE(HEADER(NEXT(ptr))) + (HEADSIZE + FOOTSIZE);
+        availableSize = currentSize + GET_SIZE(HEADER(nextBlock)) + GET_SIZE(HEADER(prevBlock)) + (HEADSIZE + FOOTSIZE);
     }
 
+    //printf("Avail: %d, required: %zu. ", availableSize, requiredSize);
     // If no heap extension is required
     if (availableSize >= requiredSize) {
+        void *newptr = reserveAllocSpace(ptr, prevBlock, nextBlock, prevBlockAllocated, nextBlockAllocated);
         // if exact or almost
         if ( availableSize <= (requiredSize + MINDATASIZE)) {
-            // Next is free
-            if (prevBlockAllocated && !nextBlockAllocated) {
-
+            //printf("Exact or almost\n");
+            if (prevBlockAllocated) {
+                return newptr;
             }
-            // Prev is free
-            else if (!prevBlockAllocated && nextBlockAllocated) {
-
+            else {
+                if (requiredSize > currentSize){
+                    memcpy(newptr, ptr, currentSize);
+                }
+                else{
+                    memcpy(newptr, ptr, requiredSize);
+                }
             }
-            // Both free
-            else{
-
-            }
-
         }
         // if additional remains
-        else{
-            // Next is free
-            if (prevBlockAllocated && !nextBlockAllocated) {
-                
+        else {
+            //printf("Split, assign and free\n");
+            if (prevBlockAllocated) {
+                return newptr;
             }
-            // Prev is free
-            else if (!prevBlockAllocated && nextBlockAllocated) {
-
+            else {
+                if (requiredSize > currentSize){
+                    memcpy(newptr, ptr, currentSize);
+                }
+                else{
+                    memcpy(newptr, ptr, requiredSize);
+                }
             }
-            // Both free
-            else{
+            void *newFree = (void *) ((char *)newptr + requiredSize + (HEADSIZE + FOOTSIZE));
+            unsigned int freeSize = (availableSize - requiredSize - (HEADSIZE + FOOTSIZE));
 
+            PUT(HEADER(newFree), (freeSize | FREE));
+            PUT(FOOTER(newFree), (freeSize | FREE));
+
+            PUT(HEADER(newptr), (requiredSize | ALLOCATED));
+            PUT(FOOTER(newptr), (requiredSize | ALLOCATED));
+
+            if (freeListStart == (void *)-1) {
+                freeListStart = newFree;
+                SET_NEXT(newFree, 0);
+            }
+            else {
+                SET_NEXT(newFree, (unsigned int)freeListStart);
+                SET_PREV(freeListStart, (unsigned int)newFree);
+                freeListStart = newFree;
+            }
+
+            SET_PREV(newFree, 0);
+
+            if (freeSize >= maxAvailableSize) {
+                maxAvailableSize = freeSize;
             }
         }
+        return newptr;
     }
     // heap extension
     else {
-        //printf("# Realloc -> %p\n", ptr);
+        //printf("Will have malloc & free\n");
         void *newptr;
         newptr = mm_malloc(requiredSize);
 
@@ -574,63 +604,83 @@ void *mm_realloc(void *ptr, size_t requiredSize)
 static void *reserveAllocSpace (void *ptr, void *prevBlock, void *nextBlock, short prevBlockAllocated, short nextBlockAllocated) {
     //printf("# reserveAllocSpace -> %p\n", ptr);
     unsigned int size = GET_SIZE(HEADER(ptr));
+    unsigned int extraSize;
 
     if(prevBlockAllocated && !nextBlockAllocated) {
         //printf("\tNext Free\n");
         // prevBlock is allocated and nextBlock is free
-        size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(nextBlock)) );
-        PUT(HEADER(ptr), PACK(size, FREE));
-        PUT(FOOTER(nextBlock), PACK(size, FREE));
+        extraSize = GET_SIZE(HEADER(nextBlock));
+        if (extraSize == maxAvailableSize) {
+            maxAvailableSize = UINT_MAX;
+        }
+        size += ( (HEADSIZE + FOOTSIZE) + extraSize );
+        PUT(HEADER(ptr), PACK(size, ALLOCATED));
+        PUT(FOOTER(nextBlock), PACK(size, ALLOCATED));
         void *NXTpointer = GET_NEXT(nextBlock);
         void *PRVpointer = GET_PREV(nextBlock);
-        SET_NEXT(ptr, (int)NXTpointer);
-        SET_PREV(ptr, (int)PRVpointer);
-        if ((int)PRVpointer == 0){
-            freeListStart = ptr;
-        }
-        else {
-            SET_NEXT(PRVpointer, (int)ptr);
-        }
-        if ((int)NXTpointer != 0) {
-            SET_PREV(NXTpointer, (int)ptr);
-        }
+        connectFreeList(NXTpointer, PRVpointer);
         //printf("1.Free size %d\n", GET_SIZE(HEADER(ptr)));
         return ptr;
     }
     else if (!prevBlockAllocated && nextBlockAllocated) {
-        //printf("\tPrev Free\n");
+        //printf("\tPrev Free, size:");
         // prevBlock is free and nextBlock is allocated
-        size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) );
-        PUT(HEADER(prevBlock), PACK(size, FREE));
-        PUT(FOOTER(ptr), PACK(size, FREE));
+        extraSize = GET_SIZE(HEADER(prevBlock));
+        //printf("%d\n", extraSize);
+        if (extraSize == maxAvailableSize) {
+            maxAvailableSize = UINT_MAX;
+        }
+        size += ( (HEADSIZE + FOOTSIZE) + extraSize );
+        PUT(HEADER(prevBlock), PACK(size, ALLOCATED));
+        PUT(FOOTER(ptr), PACK(size, ALLOCATED));
+        void *NXTpointer = GET_NEXT(prevBlock);
+        void *PRVpointer = GET_PREV(prevBlock);
+        connectFreeList(NXTpointer, PRVpointer);
         //printf("2.Free size %d\n", GET_SIZE(HEADER(ptr)));
         return (prevBlock);
     }
     else {
         //printf("\tBoth Free\n");
         // both are free
-        size += ( 2*(HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) + GET_SIZE(HEADER(nextBlock)) );
-        PUT(HEADER(prevBlock), PACK(size, FREE));
-        PUT(FOOTER(nextBlock), PACK(size, FREE));
+        extraSize = GET_SIZE(HEADER(prevBlock));
+        if (extraSize == maxAvailableSize) {
+            maxAvailableSize = UINT_MAX;
+        }
+        size += 2*(HEADSIZE + FOOTSIZE) + extraSize;
+        extraSize = GET_SIZE(HEADER(nextBlock));
+        if (extraSize == maxAvailableSize) {
+            maxAvailableSize = UINT_MAX;
+        }
+        size += extraSize;
+        PUT(HEADER(prevBlock), PACK(size, ALLOCATED));
+        PUT(FOOTER(nextBlock), PACK(size, ALLOCATED));
         void *nextNXTpointer = GET_NEXT(nextBlock);
         void *nextPRVpointer = GET_PREV(nextBlock);
+        connectFreeList(nextNXTpointer, nextPRVpointer);
+        void *prevNXTpointer = GET_NEXT(prevBlock);
+        void *prevPRVpointer = GET_PREV(prevBlock);
+        connectFreeList(prevNXTpointer, prevPRVpointer);
 
-        // if start of list
-        if ((int)nextPRVpointer == 0){
-            //printf("\tStart\n");
-            freeListStart = nextNXTpointer;
-            SET_PREV(nextNXTpointer, 0);
-        }
-        else if ((int)nextNXTpointer == 0) {
-            //printf("\tEnd\n");
-            SET_NEXT(nextPRVpointer, 0);
-        }
-        else{
-            //printf("\tMiddle (%p) %p, %p\n", nextBlock, nextPRVpointer,nextNXTpointer);
-            SET_NEXT(nextPRVpointer, (int)nextNXTpointer);
-            SET_PREV(nextNXTpointer, (int)nextPRVpointer);
-        }
         //printf("3.Free size %d\n", GET_SIZE(HEADER(ptr)));
         return (prevBlock);
     }
+}
+
+static void connectFreeList(void *NXTpointer, void *PRVpointer) {
+        if ((int)PRVpointer == 0){
+            if ((int)NXTpointer == 0) {
+                freeListStart = (void *) -1;
+            }
+            else {
+                freeListStart = NXTpointer;
+                SET_PREV(NXTpointer, 0);
+            }
+        }
+        else if ((int)NXTpointer == 0) {
+            SET_NEXT(PRVpointer, 0);
+        }
+        else {
+            SET_NEXT(PRVpointer, (int)NXTpointer);
+            SET_PREV(NXTpointer, (int)PRVpointer);
+        }
 }

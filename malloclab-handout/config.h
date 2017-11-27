@@ -32,6 +32,8 @@
   "expr-bal.rep",\
   "random-bal.rep",\
   "random2-bal.rep",\
+  "realloc-bal.rep",\
+  "realloc2-bal.rep",\
   "short1-bal.rep",\
   "short2-bal.rep",\
   "amptjp.rep",\
@@ -43,6 +45,8 @@
   "expr.rep",\
   "random.rep",\
   "random2.rep",\
+  "realloc.rep",\
+  "realloc2.rep",\
   "short1.rep",\
   "short2.rep"
   /*
