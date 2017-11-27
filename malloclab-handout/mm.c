@@ -1,13 +1,12 @@
 /*
- * mm-naive.c - The fastest, least memory-efficient malloc package.
+ * mm.c - An improved implementation of explicit lists for malloc, free and realloc
  * 
- * In this naive approach, a block is allocated by simply incrementing
- * the brk pointer.  A block is pure payload. There are no headers or
- * footers.  Blocks are never coalesced or reused. Realloc is
- * implemented directly using mm_malloc and mm_free.
- *
- * NOTE TO STUDENTS: Replace this header comment with your own header
- * comment that gives a high level description of your solution.
+ * This system simulates malloc(), free() and realloc() using explicit lists, connecting free block
+ * according to the most efficient and least expensive operations based on utilasation and performance
+ * instead of FIFO or other theories. It also implements a variable called "maxAvailableSize" to keep track
+ * of the maximum available free block size, in order to skip going through the free list if the required
+ * malloc size is larger. Finally the realloc function was only completed partially and still has a lot of
+ * room for improvement.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,7 +54,7 @@ team_t team = {
 #define MINDATASIZE (ALIGN(1))
 
 // Pack a size and allocated bit into a word
-#define PACK(size, alloc) ((size) | (alloc))
+#define PACK(size, alloc) ((size) | (alloc)) 
 
 // Read and write a word at address p
 #define GET(p) (*(unsigned int *)(p))
@@ -63,22 +62,22 @@ team_t team = {
 
 #define GET_SIZE(p) (GET(p) & ~0x7) //extracts size byte from 4 byte header or footer
 #define GET_ALLOCATED(p) (GET(p) & 0x1) //extracts allocated byte from 4 byte header or footer
-#define SET_ALLOC(p) (*(unsigned int *)(p) |= 0x1)
-#define SET_FREE(p) (*(unsigned int *)(p) &= ~0x1)
+#define SET_ALLOC(p) (*(unsigned int *)(p) |= 0x1) // set block as allocated
+#define SET_FREE(p) (*(unsigned int *)(p) &= ~0x1) // set block as free
 
 #define HEADER(ptr) (ptr - HEADSIZE) //gets header address of ptr
 #define FOOTER(ptr) (ptr + GET_SIZE(HEADER(ptr))) //gets footer address of ptr
 
-#define SET_NEXT(ptr, val) (PUT(ptr,val))
-#define SET_PREV(ptr, val) (PUT((ptr + POINTERSIZE),val))
-#define GET_NEXT(ptr) ((void *) GET(ptr))
-#define GET_PREV(ptr) ((void *) GET(ptr + POINTERSIZE))
+#define SET_NEXT(ptr, val) (PUT(ptr,val)) //sets next pointer
+#define SET_PREV(ptr, val) (PUT((ptr + POINTERSIZE),val)) // sets prev pointer
+#define GET_NEXT(ptr) ((void *) GET(ptr)) // gets next pointer (as a pointer)
+#define GET_PREV(ptr) ((void *) GET(ptr + POINTERSIZE))// gets previous pointer (as a pointer)
 
 #define NEXT(ptr) (ptr + GET_SIZE(HEADER(ptr)) + (HEADSIZE + FOOTSIZE)) // access next block
 #define PREVIOUS(ptr) (ptr - (HEADSIZE + FOOTSIZE) - GET_SIZE(ptr - (HEADSIZE + FOOTSIZE))) // access previous block
 
-void *freeListStart;
-unsigned int maxAvailableSize;
+void *freeListStart; // pointer to start of free list
+unsigned int maxAvailableSize; // used to keep track of maximum available free block size
 
 static void *coalesce(void *ptr);
 static void *reserveAllocSpace(void *ptr, void *prevBlock, void *nextBlock, short prevBlockAllocated, short nextBlockAllocate);
@@ -117,8 +116,7 @@ void *mm_malloc(size_t size)
         void *nextFree = freeListStart; // pointer to first free space, used to itinerate between the next ones
         short matchFound = 0; // has match been found
         short exactMatch = 0; // has a EXACT match been found
-        //minAvailableSize = UINT_MAX; //save closest size
-        unsigned int closestSize = UINT_MAX;
+        unsigned int closestSize = UINT_MAX;//save closest size
         void *bestFitPointer; // save pointer to the saved space
         unsigned int currentSize = 0; // holds next free space size to compare with saved one
         int numberFree = 0; // just tprint how many free spaces have been found
@@ -186,9 +184,8 @@ void *mm_malloc(size_t size)
                     // if last block is last in the free list
                     else if ((int)prevNXTpointer == 0){
                         SET_NEXT(prevPRVpointer, 0);
-
-                    // if in middle of list
                     }
+                    // if in middle of list
                     else {
                         SET_NEXT(prevPRVpointer, ((unsigned int) prevNXTpointer));
                         SET_PREV(prevNXTpointer, ((unsigned int) prevPRVpointer));
@@ -197,6 +194,7 @@ void *mm_malloc(size_t size)
                     PUT(HEADER(newAllocated),((requiredDataSize) | ALLOCATED));
                     PUT((newAllocated + requiredDataSize),((requiredDataSize) | ALLOCATED));
 
+                    // Reset maxAvailable size if it was allocated
                     if (prevSize == maxAvailableSize) {
                         maxAvailableSize = UINT_MAX;
                     }
@@ -249,10 +247,6 @@ void *mm_malloc(size_t size)
                 //allocate memory
                 SET_ALLOC(HEADER(bestFitPointer));
                 SET_ALLOC(bestFitPointer + requiredDataSize);
-
-                if (closestSize == maxAvailableSize) {
-                    maxAvailableSize = UINT_MAX;
-                }
             }
             // if additional space remains, store it as free space
             else {
@@ -263,12 +257,14 @@ void *mm_malloc(size_t size)
                 SET_NEXT(newFree, (unsigned int)oldNXTpointer);
                 SET_PREV(newFree, (unsigned int)oldPRVpointer);
 
+                // if at start of list
                 if ((int)oldPRVpointer == 0){
                     freeListStart = newFree;
                 }
                 else{
                     SET_NEXT(oldPRVpointer, (unsigned int)newFree);
                 }
+                // if at end of list
                 if ((int)oldNXTpointer != 0) {
                     SET_PREV(oldNXTpointer, (unsigned int)newFree);
                 }
@@ -276,10 +272,10 @@ void *mm_malloc(size_t size)
                 //allocate memory
                 PUT(HEADER(bestFitPointer), (requiredDataSize | ALLOCATED));
                 PUT((bestFitPointer + requiredDataSize), (requiredDataSize | ALLOCATED));
-
-                if (closestSize == maxAvailableSize) {
-                    maxAvailableSize = UINT_MAX;
-                }
+            }
+            // Reset maxAvailable size if it was allocated
+            if (closestSize == maxAvailableSize) {
+                maxAvailableSize = UINT_MAX;
             }
             return bestFitPointer;
         }
@@ -320,14 +316,18 @@ static void *coalesce (void *ptr) {
     if ( ((int)mem_heap_lo() + INITIALPADDING + HEADSIZE) == ((int)ptr) ){
         prevBlockAllocated = 1;
     }
+    // if at end. (did not use "else if" since heap can be composed of a single free block, ie. is at beginning and end)
     if ( ((int)mem_heap_hi() + 1 - (HEADSIZE + FOOTSIZE)) == ((int)ptr + size) ){
         nextBlockAllocated = 1;
     }
 
+    // nothing happens because they are both allocated
     if(prevBlockAllocated && nextBlockAllocated) {
-        // nothing happens because they are both allocated
+        // Set header and footer
         PUT(HEADER(ptr), PACK(size, FREE));
         PUT(FOOTER(ptr), PACK(size, FREE));
+
+        //Set pointers
         if (freeListStart != (void *) -1) {
             void* oldFirstFree = freeListStart;
             SET_PREV(oldFirstFree, (unsigned int)ptr);
@@ -339,16 +339,21 @@ static void *coalesce (void *ptr) {
         freeListStart = ptr;
         SET_PREV(ptr, 0);
 
+        // update maxAvailableSize if size is new max
         if (size > maxAvailableSize) {
             maxAvailableSize = size;
         }
         return ptr;
     }
+
+    // prevBlock is allocated and nextBlock is free
     else if(prevBlockAllocated && !nextBlockAllocated) {
-        // prevBlock is allocated and nextBlock is free
+        //Set header and footer
         size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(nextBlock)) );
         PUT(HEADER(ptr), PACK(size, FREE));
         PUT(FOOTER(nextBlock), PACK(size, FREE));
+
+        // Set pointers
         void *NXTpointer = GET_NEXT(nextBlock);
         void *PRVpointer = GET_PREV(nextBlock);
         SET_NEXT(ptr, (int)NXTpointer);
@@ -362,31 +367,39 @@ static void *coalesce (void *ptr) {
         if ((int)NXTpointer != 0) {
             SET_PREV(NXTpointer, (int)ptr);
         }
+
+        // update maxAvailableSize if size is new max
         if (size > maxAvailableSize) {
             maxAvailableSize = size;
         }
         return ptr;
     }
+
+    // prevBlock is free and nextBlock is allocated
     else if (!prevBlockAllocated && nextBlockAllocated) {
-        // prevBlock is free and nextBlock is allocated
+        // Set Header and footer
         size += ( (HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) );
         PUT(HEADER(prevBlock), PACK(size, FREE));
         PUT(FOOTER(ptr), PACK(size, FREE));
+        //No need to change pointers
 
+        // update maxAvailableSize if size is new max
         if (size > maxAvailableSize) {
             maxAvailableSize = size;
         }
         return (prevBlock);
     }
+
+    // both are free
     else {
-        // both are free
+        // Set header and footer
         size += ( 2*(HEADSIZE + FOOTSIZE) + GET_SIZE(HEADER(prevBlock)) + GET_SIZE(HEADER(nextBlock)) );
         PUT(HEADER(prevBlock), PACK(size, FREE));
         PUT(FOOTER(nextBlock), PACK(size, FREE));
+
+        // Set Pointers
         void *nextNXTpointer = GET_NEXT(nextBlock);
         void *nextPRVpointer = GET_PREV(nextBlock);
-
-        // if start of list
         if ((int)nextPRVpointer == 0){
             freeListStart = nextNXTpointer;
             SET_PREV(nextNXTpointer, 0);
@@ -398,6 +411,8 @@ static void *coalesce (void *ptr) {
             SET_NEXT(nextPRVpointer, (int)nextNXTpointer);
             SET_PREV(nextNXTpointer, (int)nextPRVpointer);
         }
+
+        // update maxAvailableSize if size is new max
         if (size > maxAvailableSize) {
             maxAvailableSize = size;
         }
@@ -423,21 +438,23 @@ void *mm_realloc(void *ptr, size_t requiredSize)
     }
 
     unsigned int currentSize = GET_SIZE(HEADER(ptr));
-    unsigned int availableSize;
+    unsigned int availableSize; // used to store the total available size around block (including block)
 
     void *prevBlock = PREVIOUS(ptr);
     void *nextBlock = NEXT(ptr);
-
     short prevBlockAllocated = GET_ALLOCATED(HEADER(prevBlock));
     short nextBlockAllocated = GET_ALLOCATED(HEADER(nextBlock));
 
-    // if at start
+    // if at start of heap
     if ( ((int)mem_heap_lo() + INITIALPADDING + HEADSIZE) == ((int)ptr) ){
         prevBlockAllocated = 1;
     }
+    // if at end of heap
     if ( ((int)mem_heap_hi() + 1 - (HEADSIZE + FOOTSIZE)) == ((int)ptr + currentSize) ){
         nextBlockAllocated = 1;
     }
+
+    //calculate availableSize including adiecent free blocks
     if (prevBlockAllocated && nextBlockAllocated) {
         availableSize = currentSize;
     }
@@ -451,45 +468,37 @@ void *mm_realloc(void *ptr, size_t requiredSize)
         availableSize = currentSize + GET_SIZE(HEADER(nextBlock)) + GET_SIZE(HEADER(prevBlock)) + (HEADSIZE + FOOTSIZE);
     }
 
-    // If no heap extension is required
+    // If availableSize is enough, no heap extension is required
     if (availableSize >= requiredSize) {
+        // Coalesce blocks and return pointer to start
         void *newptr = reserveAllocSpace(ptr, prevBlock, nextBlock, prevBlockAllocated, nextBlockAllocated);
-        // if exact or almost
-        if ( availableSize <= (requiredSize + MINDATASIZE)) {
-            if (prevBlockAllocated) {
-                return newptr;
+
+        // Only move data if required (when prev block is free)
+        if (prevBlockAllocated) {
+            return newptr;
+        }
+        else {
+            if (requiredSize > currentSize){
+                memcpy(newptr, ptr, currentSize);
             }
             else {
-                if (requiredSize > currentSize){
-                    memcpy(newptr, ptr, currentSize);
-                }
-                else{
-                    memcpy(newptr, ptr, requiredSize);
-                }
+                memcpy(newptr, ptr, requiredSize);
             }
         }
-        // if additional remains
-        else {
-            if (prevBlockAllocated) {
-                return newptr;
-            }
-            else {
-                if (requiredSize > currentSize){
-                    memcpy(newptr, ptr, currentSize);
-                }
-                else {
-                    memcpy(newptr, ptr, requiredSize);
-                }
-            }
+
+        // if additional space remains, split and free
+        if ( availableSize > (requiredSize + MINDATASIZE)) {
+            // Calculate size and pointer of free space
             void *newFree = (void *) ((char *)newptr + requiredSize + (HEADSIZE + FOOTSIZE));
             unsigned int freeSize = (availableSize - requiredSize - (HEADSIZE + FOOTSIZE));
-
+            // Set header and footer of new free space
             PUT(HEADER(newFree), (freeSize | FREE));
             PUT(FOOTER(newFree), (freeSize | FREE));
-
+            // Redefine header and footer of reallocated space
             PUT(HEADER(newptr), (requiredSize | ALLOCATED));
             PUT(FOOTER(newptr), (requiredSize | ALLOCATED));
 
+            // Set pointers
             if (freeListStart == (void *)-1) {
                 freeListStart = newFree;
                 SET_NEXT(newFree, 0);
@@ -502,13 +511,14 @@ void *mm_realloc(void *ptr, size_t requiredSize)
 
             SET_PREV(newFree, 0);
 
+            // Reassign maxAvailableSize if new free space is new max
             if (freeSize >= maxAvailableSize) {
                 maxAvailableSize = freeSize;
             }
         }
         return newptr;
     }
-    // heap extension
+    // If available size is not enough, call malloc and then free
     else {
         void *newptr;
         newptr = mm_malloc(requiredSize);
@@ -523,14 +533,17 @@ void *mm_realloc(void *ptr, size_t requiredSize)
         return newptr;
     }
 }
-
+/*
+ * Function to coalesce one given block with the free adiecent ones without modifying the data between the resulting block header and footer
+ */
 static void *reserveAllocSpace (void *ptr, void *prevBlock, void *nextBlock, short prevBlockAllocated, short nextBlockAllocated) {
+
 
     unsigned int size = GET_SIZE(HEADER(ptr));
     unsigned int extraSize;
 
+    // prevBlock is allocated and nextBlock is free
     if(prevBlockAllocated && !nextBlockAllocated) {
-        // prevBlock is allocated and nextBlock is free
         extraSize = GET_SIZE(HEADER(nextBlock));
         if (extraSize == maxAvailableSize) {
             maxAvailableSize = UINT_MAX;
@@ -543,8 +556,8 @@ static void *reserveAllocSpace (void *ptr, void *prevBlock, void *nextBlock, sho
         connectFreeList(NXTpointer, PRVpointer);
         return ptr;
     }
+    // prevBlock is free and nextBlock is allocated
     else if (!prevBlockAllocated && nextBlockAllocated) {
-        // prevBlock is free and nextBlock is allocated
         extraSize = GET_SIZE(HEADER(prevBlock));
         if (extraSize == maxAvailableSize) {
             maxAvailableSize = UINT_MAX;
@@ -557,8 +570,8 @@ static void *reserveAllocSpace (void *ptr, void *prevBlock, void *nextBlock, sho
         connectFreeList(NXTpointer, PRVpointer);
         return (prevBlock);
     }
+    // both are free
     else {
-        // both are free
         extraSize = GET_SIZE(HEADER(prevBlock));
         if (extraSize == maxAvailableSize) {
             maxAvailableSize = UINT_MAX;
@@ -581,7 +594,9 @@ static void *reserveAllocSpace (void *ptr, void *prevBlock, void *nextBlock, sho
         return (prevBlock);
     }
 }
-
+ /*
+  * Function to connect two pieces of the free list that where connected by a now allocated block.
+  */
 static void connectFreeList(void *NXTpointer, void *PRVpointer) {
         if ((int)PRVpointer == 0){
             if ((int)NXTpointer == 0) {
